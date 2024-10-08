@@ -3,6 +3,7 @@ package automata
 import (
 	"io"
 	"strconv"
+	"strings"
 
 	"automata-utils/ioutils"
 )
@@ -212,4 +213,129 @@ func ConvertNfaToNfaWithWordsOfLen1(nfa1 INondeterministicFiniteAutomaton) INond
 		)
 	}
 	return nfa3
+}
+
+func ConvertNfaToNfaWithSingleTerminal(nfa INondeterministicFiniteAutomaton) State {
+	terminal := nfa.AddState()
+	nfa.SetTerminal(terminal, true)
+	for state := range nfa.StateCount() {
+		if nfa.IsTerminal(State(state)) {
+			nfa.SetTerminal(State(state), false)
+			nfa.AddEdge(Edge{
+				From: State(state),
+				To:   terminal,
+				Word: "",
+			})
+		}
+	}
+	return terminal
+}
+
+func ConvertNfaToRegexp(nfa INondeterministicFiniteAutomaton) string {
+	terminal := ConvertNfaToNfaWithSingleTerminal(nfa)
+
+	ordinaryStates := make([]State, 0, nfa.StateCount()-2)
+	for state := range nfa.StateCount() {
+		if State(state) != nfa.Start() && State(state) != terminal {
+			ordinaryStates = append(ordinaryStates, State(state))
+		}
+	}
+
+	for _, curState := range ordinaryStates {
+		var loops []Edge
+		prevEdges := make(map[State][]Edge)
+		nextEdges := make(map[State][]Edge)
+		for state := range nfa.StateCount() {
+			for _, edge := range nfa.Edges(State(state)) {
+				if edge.From == curState && edge.To == curState {
+					loops = append(loops, edge)
+				} else if edge.To == curState {
+					prevEdges[edge.From] = append(prevEdges[edge.From], edge)
+				} else if edge.From == curState {
+					nextEdges[edge.To] = append(nextEdges[edge.To], edge)
+				}
+			}
+		}
+		loop := reduceEdgesToRegexp(nfa, loops)
+		prevEdgesReduced := reduceManyEdgesToRegexp(nfa, prevEdges)
+		nextEdgesReduced := reduceManyEdgesToRegexp(nfa, nextEdges)
+
+		for from, prevEdge := range prevEdgesReduced {
+			for to, nextEdge := range nextEdgesReduced {
+				nfa.AddEdge(Edge{
+					From: from,
+					To:   to,
+					Word: "(" + prevEdge + loop + "*" + nextEdge + ")",
+				})
+			}
+		}
+	}
+
+	var loopsStart []Edge
+	var loopsTerminal []Edge
+	var edgesFromStartToTerminal []Edge
+	var edgesFromTerminalToStart []Edge
+	for _, edge := range nfa.Edges(nfa.Start()) {
+		if edge.To == nfa.Start() {
+			loopsStart = append(loopsStart, edge)
+		} else {
+			edgesFromStartToTerminal = append(edgesFromStartToTerminal, edge)
+		}
+	}
+	for _, edge := range nfa.Edges(terminal) {
+		if edge.To == terminal {
+			loopsTerminal = append(loopsTerminal, edge)
+		} else {
+			edgesFromTerminalToStart = append(edgesFromTerminalToStart, edge)
+		}
+	}
+	loopStart := reduceEdgesToRegexp(nfa, loopsStart)
+	loopTerminal := reduceEdgesToRegexp(nfa, loopsTerminal)
+	edgeFromStartToTerminal := reduceEdgesToRegexp(nfa, edgesFromStartToTerminal)
+	edgeFromTerminalToStart := reduceEdgesToRegexp(nfa, edgesFromTerminalToStart)
+
+	var regexp strings.Builder
+	regexp.WriteString("(")
+	regexp.WriteString(loopStart)
+	regexp.WriteString("*")
+	regexp.WriteString(edgeFromStartToTerminal)
+	regexp.WriteString(loopTerminal)
+	regexp.WriteString("*")
+	regexp.WriteString(edgeFromTerminalToStart)
+	regexp.WriteString(")*")
+	regexp.WriteString(loopStart)
+	regexp.WriteString("*")
+	regexp.WriteString(edgeFromStartToTerminal)
+	regexp.WriteString(loopTerminal)
+	regexp.WriteString("*")
+	return regexp.String()
+}
+
+func reduceEdgesToRegexp(nfa INondeterministicFiniteAutomaton, edges []Edge) string {
+	if len(edges) == 0 {
+		return "1"
+	}
+	var regexp strings.Builder
+	regexp.WriteString("(")
+	for i, edge := range edges {
+		if i > 0 {
+			regexp.WriteString("+")
+		}
+		if edge.Word == "" {
+			regexp.WriteString("1")
+		} else {
+			regexp.WriteString(edge.Word)
+		}
+		nfa.DeleteEdge(edge)
+	}
+	regexp.WriteString(")")
+	return regexp.String()
+}
+
+func reduceManyEdgesToRegexp(nfa INondeterministicFiniteAutomaton, edgesMap map[State][]Edge) map[State]string {
+	regexps := make(map[State]string, len(edgesMap))
+	for state, edges := range edgesMap {
+		regexps[state] = reduceEdgesToRegexp(nfa, edges)
+	}
+	return regexps
 }
