@@ -104,6 +104,7 @@ func ConvertNfaToDfa(nfa1 INondeterministicFiniteAutomaton) *DeterministicFinite
 			return metaState.id
 		}
 		metaFrom.id = dfa.AddState()
+		metaStates[hash] = metaFrom
 
 		metaEdges := make(map[uint8][]bool)
 		for stateFrom, isInSet := range metaFrom.states {

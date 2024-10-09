@@ -109,6 +109,9 @@ func ReadNfa(reader io.Reader) INondeterministicFiniteAutomaton {
 		from := ioutils.Read[State](reader)
 		to := ioutils.Read[State](reader)
 		word := ioutils.Read[string](reader)
+		if word == "eps" {
+			word = ""
+		}
 		nfa.AddEdge(Edge{
 			From: from,
 			To:   to,
